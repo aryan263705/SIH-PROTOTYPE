@@ -101,7 +101,8 @@ export default function VideoFeed({
               source_type: 'webcam',
               source_status: 'ONLINE',
               camera_message: 'BROWSER CAMERA ONLINE',
-              ai_online: true,
+              ai_online: result.ai_online !== false,
+              error_message: result.ai_error || '',
               tracking_status: result.persons?.length ? 'TRACKING' : 'READY'
             });
           } catch (err) {
@@ -318,7 +319,7 @@ export default function VideoFeed({
           )}
         </div>
 
-        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" viewBox="0 0 640 480" preserveAspectRatio="xMidYMid meet">
           <defs>
             <linearGradient id="restrictedGlow" x1="0%" y1="0%" x2="0%" y2="100%">
               <stop offset="0%" stopColor="rgba(239, 68, 68, 0.35)" />
@@ -384,6 +385,23 @@ export default function VideoFeed({
               )}
             </g>
           )}
+
+          {livePersons.map((p, idx) => {
+            const [x1, y1, x2, y2] = p.bbox || [];
+            if ([x1, y1, x2, y2].length !== 4) return null;
+            const alerted = p.has_alerted;
+            const approaching = p.approaching || p.crossing_pending || p.is_suspicious;
+            const stroke = alerted ? '#ef4444' : (approaching ? '#f59e0b' : '#22c55e');
+            return (
+              <g key={p.track_id || idx}>
+                <rect x={x1} y={y1} width={Math.max(1, x2 - x1)} height={Math.max(1, y2 - y1)} fill="none" stroke={stroke} strokeWidth="2.5" />
+                <rect x={x1} y={Math.max(0, y1 - 24)} width="150" height="22" rx="3" fill="rgba(15,23,42,0.88)" stroke={stroke} strokeWidth="1" />
+                <text x={x1 + 6} y={Math.max(15, y1 - 9)} fill="#fff" fontSize="12" fontWeight="bold" fontFamily="monospace">
+                  {'PERSON #' + (p.track_id || '?') + '  ' + Number(p.confidence || 0).toFixed(0) + '%'}
+                </text>
+              </g>
+            );
+          })}
 
           {borderLine && (
             <g>
