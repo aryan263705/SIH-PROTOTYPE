@@ -504,6 +504,7 @@ async def process_browser_frame(file: UploadFile = File(...)):
         "ai_online": detector.ai_online,
         "ai_error": detector.error_message,
         "model_name": detector.model_name,
+        "inference_mode": "browser-frame",
     }
 
 
