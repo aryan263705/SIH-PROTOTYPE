@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://sih-prototype-backend.onrender.com').replace(/\/$/, '');
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
