@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://sih-prototype-backend.onrender.com').replace(/\/$/, '');
 
 export async function fetchStatus() {
   try {
@@ -165,10 +165,23 @@ export async function processBrowserFrame(blob) {
       method: 'POST',
       body: formData
     });
-    if (!res.ok) return null;
-    return await res.json();
+    const raw = await res.text();
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (_) {}
+    if (!res.ok) {
+      return {
+        ok: false,
+        ai_online: false,
+        ai_error: data?.error || data?.detail || `AI backend returned HTTP ${res.status}`
+      };
+    }
+    return { ...(data || {}), ok: true };
   } catch (err) {
-    return null;
+    return {
+      ok: false,
+      ai_online: false,
+      ai_error: err?.message || 'Unable to reach AI backend'
+    };
   }
 }
 
