@@ -1,3 +1,5 @@
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, '');
+
 import React, { useState, useEffect, useRef } from 'react';
 import VideoFeed from '../components/VideoFeed';
 import StatusPanel from '../components/StatusPanel';
@@ -93,7 +95,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(`${proto}://${window.location.host}/ws`);
+    const socketBase = new URL(API_BASE);
+    const socketHost = socketBase.host;
+    const socket = new WebSocket(`${proto}://${socketHost}/ws`);
 
     socket.onopen = () => setWsConnected(true);
     socket.onclose = () => setWsConnected(false);
