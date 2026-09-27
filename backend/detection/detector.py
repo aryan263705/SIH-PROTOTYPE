@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+from pathlib import Path
 import cv2
 import numpy as np
 import threading
@@ -41,6 +42,45 @@ class PersonDetectorTracker:
             self.ai_online = False
             self.error_message = f"YOLO model unavailable: {ex}"
             print(f"[AI Engine] {self.error_message}")
+
+    def detect_browser_frame(self, frame: np.ndarray, conf_thresh: float = 0.20) -> List[Dict[str, Any]]:
+        """Detect people in browser-uploaded frames without sharing ByteTrack state with the camera worker."""
+        if frame is None or getattr(frame, "size", 0) == 0 or self.model is None:
+            return []
+        input_frame = self._preprocess_frame(frame)
+        try:
+            with self._inference_lock:
+                results = self.model.predict(
+                    source=input_frame,
+                    classes=config.target_classes,
+                    conf=conf_thresh,
+                    iou=0.45,
+                    agnostic_nms=True,
+                    verbose=False,
+                    imgsz=min(config.inference_imgsz, 640),
+                )
+            self.ai_online = True
+            self.error_message = ""
+        except Exception as ex:
+            self.ai_online = False
+            self.error_message = f"YOLO browser inference error: {ex}"
+            return []
+
+        detections: List[Dict[str, Any]] = []
+        if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+            return detections
+        boxes = results[0].boxes.xyxy.cpu().numpy()
+        confs = results[0].boxes.conf.cpu().numpy()
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = [int(v) for v in box]
+            detections.append({
+                "track_id": f"B{i + 1:02d}",
+                "bbox": (x1, y1, x2, y2),
+                "confidence": round(float(confs[i]) * 100.0, 1),
+                "class_name": "person",
+                "center": (round((x1 + x2) / 2.0, 1), round((y1 + y2) / 2.0, 1)),
+            })
+        return detections
 
     def switch_model(self, model_name: str) -> bool:
         """Switch between high-accuracy (yolov8s.pt) and max-speed (yolov8n.pt) at runtime."""
@@ -106,7 +146,9 @@ class PersonDetectorTracker:
     def detect_and_track(
         self,
         frame: np.ndarray,
-        conf_thresh: float = 0.25
+        conf_thresh: float = 0.25,
+        persist: bool = True,
+        tracker: str | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Runs YOLO person detection and ByteTrack tracking.
@@ -125,8 +167,8 @@ class PersonDetectorTracker:
             with self._inference_lock:
                 results = self.model.track(
                     source=input_frame,
-                    persist=True,
-                    tracker=config.tracker_type,
+                    persist=persist,
+                    tracker=(tracker or config.tracker_type),
                     classes=config.target_classes,
                     conf=conf_thresh,
                     iou=0.45,
@@ -143,8 +185,8 @@ class PersonDetectorTracker:
                             delattr(self.model.predictor, "trackers")
                     results = self.model.track(
                         source=input_frame,
-                        persist=True,
-                        tracker=config.tracker_type,
+                        persist=persist,
+                        tracker=(tracker or config.tracker_type),
                         classes=config.target_classes,
                         conf=conf_thresh,
                         iou=0.45,
