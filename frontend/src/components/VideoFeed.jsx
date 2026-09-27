@@ -11,7 +11,7 @@ import {
   RotateCcw,
   RefreshCw
 } from 'lucide-react';
-import { setVirtualBorder, setRestrictedZone } from '../services/api';
+import { setVirtualBorder, setRestrictedZone, processBrowserFrame } from '../services/api';
 
 export default function VideoFeed({
   cameraSource,
@@ -23,17 +23,108 @@ export default function VideoFeed({
   setBorderLine,
   roiPolygon,
   setRoiPolygon,
-  telemetry
+  telemetry,
+  onBrowserTelemetry
 }) {
   const containerRef = useRef(null);
   const [mjpegError, setMjpegError] = useState(false);
   const [feedNonce, setFeedNonce] = useState(0);
   const prevCameraOnlineRef = useRef(false);
+  const browserVideoRef = useRef(null);
+  const browserStreamRef = useRef(null);
+  const browserCanvasRef = useRef(null);
+  const browserBusyRef = useRef(false);
 
   const reloadFeed = useCallback(() => {
     setFeedNonce((n) => n + 1);
     setMjpegError(false);
   }, []);
+
+  // A deployed backend cannot access the user's laptop webcam. Capture webcam frames in-browser.
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+      if (browserStreamRef.current) {
+        browserStreamRef.current.getTracks().forEach((track) => track.stop());
+        browserStreamRef.current = null;
+      }
+      if (browserVideoRef.current) browserVideoRef.current.srcObject = null;
+    };
+
+    const start = async () => {
+      if (cameraSource !== 'webcam' || !isCameraRunning) {
+        stop();
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setMjpegError(true);
+        onBrowserTelemetry?.({ camera_online: false, source_type: 'webcam', source_status: 'ERROR', error_message: 'Browser camera access is unavailable. Use HTTPS and a modern browser.' });
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        browserStreamRef.current = stream;
+        if (browserVideoRef.current) {
+          browserVideoRef.current.srcObject = stream;
+          await browserVideoRef.current.play();
+        }
+        setMjpegError(false);
+        onBrowserTelemetry?.({ camera_online: true, source_type: 'webcam', source_status: 'ONLINE', camera_message: 'BROWSER CAMERA ONLINE', error_message: '' });
+
+        const canvas = browserCanvasRef.current;
+        const video = browserVideoRef.current;
+        if (!canvas || !video) return;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        timer = setInterval(async () => {
+          if (cancelled || browserBusyRef.current || video.readyState < 2) return;
+          browserBusyRef.current = true;
+          try {
+            canvas.width = 640;
+            canvas.height = 480;
+            ctx.drawImage(video, 0, 0, 640, 480);
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72));
+            if (!blob) return;
+            const result = await processBrowserFrame(blob);
+            if (result) onBrowserTelemetry?.({
+              ...result,
+              camera_online: true,
+              source_type: 'webcam',
+              source_status: 'ONLINE',
+              camera_message: 'BROWSER CAMERA ONLINE',
+              ai_online: true,
+              tracking_status: result.persons?.length ? 'TRACKING' : 'READY'
+            });
+          } catch (err) {
+            console.warn('Browser camera processing warning:', err);
+          } finally {
+            browserBusyRef.current = false;
+          }
+        }, 350);
+      } catch (err) {
+        setMjpegError(true);
+        onBrowserTelemetry?.({
+          camera_online: false,
+          source_type: 'webcam',
+          source_status: 'ERROR',
+          error_message: err?.name === 'NotAllowedError' ? 'Camera permission was denied. Allow camera access and try again.' : (err?.message || 'Unable to access browser camera.')
+        });
+      }
+    };
+    start();
+    return () => { cancelled = true; stop(); };
+  }, [cameraSource, isCameraRunning]);
+
+  
 
   const prevSourceRef = useRef(cameraSource);
   useEffect(() => {
@@ -192,9 +283,14 @@ export default function VideoFeed({
         </div>
 
         <div className="w-full h-full flex items-center justify-center relative">
-          {!mjpegError ? (
+          {cameraSource === 'webcam' ? (
+            <>
+              <video ref={browserVideoRef} muted playsInline autoPlay className="w-full h-full object-contain select-none" />
+              <canvas ref={browserCanvasRef} className="hidden" />
+            </>
+          ) : !mjpegError ? (
             <img
-              src={`${API_BASE}/api/video/feed?n=${feedNonce}`}
+              src={`${API_BASE}/api/video/feed?n={feedNonce}`}
               alt="Live Stream Feed"
               onError={() => setMjpegError(true)}
               onLoad={() => setMjpegError(false)}
