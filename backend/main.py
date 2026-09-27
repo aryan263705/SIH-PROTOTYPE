@@ -502,6 +502,7 @@ async def process_browser_frame(file: UploadFile = File(...)):
         alert_engine,
         browser_track_memory,
         motion_gate=None,
+        precomputed_detections=browser_detections,
     )
     _publish_alerts(new_alerts)
 
