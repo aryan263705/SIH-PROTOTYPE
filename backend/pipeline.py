@@ -144,6 +144,7 @@ def analyze_frame(
     slow_movement_analyzer: Optional[Any] = None,
     tamper_detector: Optional[Any] = None,
     replay_buffer: Optional[Any] = None,
+    precomputed_detections: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
     h, w = frame.shape[:2]
 
@@ -167,8 +168,12 @@ def analyze_frame(
             frame, active_target_count=active_count
         )
 
-    # 4. Person Detection & Tracking (Skipped on static empty frames to conserve edge compute)
-    if should_run_yolo:
+    # 4. Person Detection & Tracking. Browser frames may provide detections
+    # already computed by their isolated browser inference path.
+    if precomputed_detections is not None:
+        detections = precomputed_detections
+        track_memory.update(detections)
+    elif should_run_yolo:
         detections = detector.detect_and_track(frame, conf_thresh=config.confidence_threshold)
         track_memory.update(detections)
     else:
