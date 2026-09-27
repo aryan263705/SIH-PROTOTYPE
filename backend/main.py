@@ -494,12 +494,16 @@ async def process_browser_frame(file: UploadFile = File(...)):
     return {
         "threat_level": analysis["threat_level"],
         "persons": processed_persons,
+        "persons_detected": analysis["persons_detected"],
         "new_alerts": new_alerts,
         "active_alerts_count": analysis["active_alerts_count"],
         "border_line": boundary_analyzer.border_line,
         "roi_polygon": boundary_analyzer.roi_polygon,
         "threat_score": analysis["threat_score"],
         "threat_reason": analysis["threat_reason"],
+        "ai_online": detector.ai_online,
+        "ai_error": detector.error_message,
+        "model_name": detector.model_name,
     }
 
 
