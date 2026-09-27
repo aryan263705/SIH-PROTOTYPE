@@ -1,3 +1,5 @@
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, '');
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Eye, 
@@ -192,7 +194,7 @@ export default function VideoFeed({
         <div className="w-full h-full flex items-center justify-center relative">
           {!mjpegError ? (
             <img
-              src={`/api/video/feed?n=${feedNonce}`}
+              src={`${API_BASE}/api/video/feed?n=${feedNonce}`}
               alt="Live Stream Feed"
               onError={() => setMjpegError(true)}
               onLoad={() => setMjpegError(false)}
