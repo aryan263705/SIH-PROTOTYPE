@@ -1,0 +1,8 @@
+{
+  "services": {
+    "backend": {
+      "root": "backend/",
+      "entrypoint": "main:app"
+    }
+  }
+}
