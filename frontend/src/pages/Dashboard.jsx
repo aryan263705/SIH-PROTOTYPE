@@ -38,9 +38,11 @@ export default function Dashboard() {
   const [events, setEvents] = useState([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const eventsRef = useRef([]);
+  const browserCameraActiveRef = useRef(false);
 
   const applyTelemetry = (statusData) => {
     if (!statusData) return;
+    if (browserCameraActiveRef.current && statusData.source_type === 'webcam') return;
     setTelemetry(statusData);
     if (statusData.source_type) setCameraSource(statusData.source_type);
     if (statusData.border_line) setBorderLine(statusData.border_line);
@@ -82,11 +84,10 @@ export default function Dashboard() {
         setBoundaryPosition(Math.round(cfg.boundary_position * 100));
       }
 
-      // If camera is already streaming online or connecting, do not disrupt capture session
-      if (currentSt?.camera_online || currentSt?.source_status === 'CONNECTING') {
+      // On a deployed site, the laptop webcam belongs to the browser, not the cloud backend.
+      // Do not ask the remote server to open cv2.VideoCapture(0).
+      if (currentSt?.source_type && currentSt.source_type !== 'webcam') {
         applyTelemetry(currentSt);
-      } else {
-        await configureCamera('webcam', '0');
       }
       await loadData();
     })();
@@ -136,15 +137,17 @@ export default function Dashboard() {
   const handleSourceChange = async (src) => {
     setCameraSource(src);
     if (src === 'demo') {
+      browserCameraActiveRef.current = false;
       await configureCamera('demo', 'border_patrol_demo.mp4');
       setIsCameraRunning(true);
     } else if (src === 'mobile') {
+      browserCameraActiveRef.current = false;
       if (mobileUrl) {
         await configureCamera('mobile', mobileUrl);
         setIsCameraRunning(true);
       }
     } else if (src === 'webcam') {
-      await configureCamera('webcam', '0');
+      browserCameraActiveRef.current = true;
       setIsCameraRunning(true);
     }
     loadData();
@@ -152,13 +155,43 @@ export default function Dashboard() {
 
   const handleToggleCamera = async () => {
     const nextState = !isCameraRunning;
-    if (nextState) {
-      await controlCamera('start');
+    if (cameraSource === 'webcam') {
+      browserCameraActiveRef.current = nextState;
+      setIsCameraRunning(nextState);
+      if (!nextState) {
+        setTelemetry((prev) => prev ? {
+          ...prev,
+          camera_online: false,
+          source_status: 'OFFLINE',
+          camera_message: 'CAMERA OFFLINE'
+        } : prev);
+      }
     } else {
-      await controlCamera('stop');
+      if (nextState) {
+        await controlCamera('start');
+      } else {
+        await controlCamera('stop');
+      }
+      setIsCameraRunning(nextState);
+      loadData();
     }
-    setIsCameraRunning(nextState);
-    loadData();
+  };
+
+  const handleBrowserTelemetry = (browserData) => {
+    browserCameraActiveRef.current = true;
+    setTelemetry((prev) => ({
+      ...(prev || {}),
+      ...browserData,
+      source_type: 'webcam',
+      source_status: browserData.source_status || 'ONLINE',
+      camera_online: Boolean(browserData.camera_online),
+      ai_online: browserData.ai_online !== false
+    }));
+    if (browserData.border_line) setBorderLine(browserData.border_line);
+    if (browserData.roi_polygon) setRoiPolygon(browserData.roi_polygon);
+    if (browserData.new_alerts?.length) {
+      setAlerts((prev) => [...browserData.new_alerts, ...prev]);
+    }
   };
 
   const handleConnectMobile = async () => {
@@ -257,6 +290,7 @@ export default function Dashboard() {
             roiPolygon={roiPolygon}
             setRoiPolygon={setRoiPolygon}
             telemetry={telemetry}
+            onBrowserTelemetry={handleBrowserTelemetry}
           />
         </div>
         <div className="lg:col-span-1">
