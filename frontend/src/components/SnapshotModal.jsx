@@ -1,3 +1,5 @@
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, '');
+
 import React, { useState } from 'react';
 import { X, ShieldAlert, Calendar, Clock, User, Award, Film, Image as ImageIcon, Video } from 'lucide-react';
 
@@ -14,7 +16,7 @@ export default function SnapshotModal({ snapshot, onClose }) {
     if (!raw) return null;
     let s = String(raw).trim();
     s = s.replace(/^\/?snapshots\//, '').replace(/^\//, '');
-    return `/snapshots/${s}`;
+    return `${API_BASE}/snapshots/${s}`;
   };
 
   const snapshotSrc = resolveMediaPath(snapshot.snapshot || snapshot.snapshot_path);
