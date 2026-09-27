@@ -68,6 +68,7 @@ replay_buffer = RollingEventReplayBuffer(max_seconds=30.0, target_fps=12.0)
 alert_engine = AlertEngine(replay_buffer=replay_buffer)
 edge_health = EdgeHealthMonitor()
 track_memory = TrackMemory(timeout_seconds=config.track_lost_seconds)
+browser_track_memory = TrackMemory(timeout_seconds=config.track_lost_seconds)
 
 pipeline_running = True
 show_motion_roi = False
@@ -466,6 +467,7 @@ def reset_demo():
     clear_events()
     detector.reset_tracker()
     track_memory.reset()
+    browser_track_memory.reset()
     motion_analyzer.tracks.clear()
     return {"status": "success", "message": "Demo state reset completely."}
 
@@ -480,6 +482,17 @@ async def process_browser_frame(file: UploadFile = File(...)):
     if frame is None or frame.size == 0:
         return JSONResponse(status_code=400, content={"error": "Invalid image frame"})
 
+    # Browser webcam frames use a separate detector/tracker state so the
+    # server-side camera worker cannot overwrite their person tracks.
+    browser_detections = detector.detect_browser_frame(
+        frame,
+        conf_thresh=min(config.confidence_threshold, 0.20),
+    )
+    browser_track_memory.update(browser_detections)
+
+    # Run the common behavior/alert pipeline against the browser-specific tracks.
+    # Motion gating is intentionally disabled here: every browser frame reaching
+    # this endpoint is an explicit request for live AI inference.
     processed_persons, analysis, new_alerts = analyze_frame(
         frame,
         detector,
@@ -487,7 +500,8 @@ async def process_browser_frame(file: UploadFile = File(...)):
         posture_heuristic,
         boundary_analyzer,
         alert_engine,
-        track_memory,
+        browser_track_memory,
+        motion_gate=None,
     )
     _publish_alerts(new_alerts)
 
@@ -505,6 +519,8 @@ async def process_browser_frame(file: UploadFile = File(...)):
         "ai_error": detector.error_message,
         "model_name": detector.model_name,
         "inference_mode": "browser-frame",
+        "tracking_active": len(processed_persons) > 0,
+        "tracking_status": "TRACKING" if processed_persons else "READY",
     }
 
 
