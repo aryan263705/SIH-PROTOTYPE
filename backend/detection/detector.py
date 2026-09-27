@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 import cv2
 import numpy as np
+import threading
 from backend.config import MODELS_DIR, config
 
 
@@ -12,6 +13,10 @@ class PersonDetectorTracker:
         self.ai_online = False
         self.error_message = ""
         self._prev_boxes: Dict[str, Tuple[int, int, int, int]] = {}
+        # Ultralytics tracking state is not safe for overlapping requests.
+        # Browser-camera frames can arrive faster than CPU inference on Render,
+        # so serialize model inference across all callers.
+        self._inference_lock = threading.Lock()
         self._load_model(model_name)
 
     def _load_model(self, model_name: str):
@@ -117,23 +122,7 @@ class PersonDetectorTracker:
         input_frame = self._preprocess_frame(frame)
 
         try:
-            results = self.model.track(
-                source=input_frame,
-                persist=True,
-                tracker=config.tracker_type,
-                classes=config.target_classes,
-                conf=conf_thresh,
-                iou=0.45,
-                agnostic_nms=True,
-                verbose=False,
-                imgsz=config.inference_imgsz
-            )
-        except Exception as ex:
-            # Self-healing: if tracker threw an error, cleanly purge corrupted tracker and retry once
-            try:
-                if hasattr(self.model, "predictor") and self.model.predictor is not None:
-                    if hasattr(self.model.predictor, "trackers"):
-                        delattr(self.model.predictor, "trackers")
+            with self._inference_lock:
                 results = self.model.track(
                     source=input_frame,
                     persist=True,
@@ -145,6 +134,24 @@ class PersonDetectorTracker:
                     verbose=False,
                     imgsz=config.inference_imgsz
                 )
+        except Exception as ex:
+            # Self-healing: if tracker threw an error, cleanly purge corrupted tracker and retry once.
+            try:
+                with self._inference_lock:
+                    if hasattr(self.model, "predictor") and self.model.predictor is not None:
+                        if hasattr(self.model.predictor, "trackers"):
+                            delattr(self.model.predictor, "trackers")
+                    results = self.model.track(
+                        source=input_frame,
+                        persist=True,
+                        tracker=config.tracker_type,
+                        classes=config.target_classes,
+                        conf=conf_thresh,
+                        iou=0.45,
+                        agnostic_nms=True,
+                        verbose=False,
+                        imgsz=config.inference_imgsz
+                    )
             except Exception as ex2:
                 self.ai_online = False
                 self.error_message = f"YOLO inference error: {ex2}"
